@@ -4,6 +4,7 @@ const db = require("./db");
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 app.get("/films", (req, res) => {
   db.query("SELECT ID, name, type, link FROM film", (err, results) => {
@@ -45,6 +46,20 @@ app.get("/incoming", (req, res) => {
   });
 });
 
-app.listen(5000, () => {
+app.get("/goods", (req, res) => {
+  db.query(
+    "SELECT ID, name, description, price, discount FROM goods",
+    (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Lỗi khi lấy dữ liệu incoming");
+      }
+      res.json(results);
+    }
+  );
+});
+
+const PORT = 5000;
+app.listen(PORT, () => {
   console.log("Backend chạy tại http://localhost:5000");
 });
