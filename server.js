@@ -126,6 +126,29 @@ app.get("/endow/:id", (req, res) => {
   });
 });
 
+app.get("/films/:id", (req, res) => {
+  const sql = `
+    SELECT 
+      ID, name, description, classify, format, director, actor, type, 
+      DATE_FORMAT(start_day, '%d/%m/%Y') AS start_day, 
+      duration, link
+    FROM film
+    WHERE ID = ?
+  `;
+  db.query(sql, [req.params.id], (err, result) => {
+    if (err) {
+      console.error("Lỗi truy vấn phim:", err);
+      res.status(500).json({ error: "Lỗi truy vấn cơ sở dữ liệu" });
+      return;
+    }
+    if (result.length === 0) {
+      res.status(404).json({ error: "Không tìm thấy phim" });
+      return;
+    }
+    res.json(result[0]);
+  });
+});
+
 const PORT = 5000;
 app.listen(PORT, () => {
   console.log("Backend chạy tại http://localhost:5000");
