@@ -59,6 +59,73 @@ app.get("/goods", (req, res) => {
   );
 });
 
+app.post("/api/profile", (req, res) => {
+  const { name, gender, email, password, phone, birthday } = req.body;
+
+  const sql = `
+    INSERT INTO profile (name, gender, email, password, phone, birthday)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `;
+
+  db.query(
+    sql,
+    [name, gender, email, password, phone, birthday],
+    (err, result) => {
+      if (err) {
+        console.error("Lỗi thêm dữ liệu:", err);
+        return res.status(500).json({ message: "Lỗi server" });
+      }
+      res.status(200).json({ message: "Đăng ký thành công" });
+    }
+  );
+});
+
+app.post("/api/profile/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // ✅ dùng db.promise().query thay vì db.query
+    const [rows] = await db
+      .promise()
+      .query("SELECT * FROM profile WHERE email = ? AND password = ? LIMIT 1", [
+        email,
+        password,
+      ]);
+
+    if (rows.length > 0) {
+      res.json({ user: rows[0] });
+    } else {
+      res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
+    }
+  } catch (err) {
+    console.error("Lỗi khi đăng nhập:", err);
+    res.status(500).json({ message: "Lỗi máy chủ" });
+  }
+});
+
+app.get("/endow/:id", (req, res) => {
+  const { id } = req.params;
+  const sql = `
+    SELECT
+      ID,
+      name,
+      detail,
+      DATE_FORMAT(day, '%d/%m/%Y') AS day
+    FROM endow
+    WHERE ID = ?
+  `;
+  db.query(sql, [id], (err, results) => {
+    if (err) {
+      console.error("Lỗi truy vấn endow theo ID:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+    if (results.length === 0) {
+      return res.status(404).json({ error: "Không tìm thấy endow" });
+    }
+    res.json(results[0]);
+  });
+});
+
 const PORT = 5000;
 app.listen(PORT, () => {
   console.log("Backend chạy tại http://localhost:5000");
