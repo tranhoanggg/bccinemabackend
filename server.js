@@ -149,6 +149,17 @@ app.get("/films/:id", (req, res) => {
   });
 });
 
+app.get("/combo/:id", (req, res) => {
+  const { id } = req.params;
+  const sql = "SELECT ID, name, detail FROM combo WHERE ID = ?";
+  db.query(sql, [id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (results.length === 0)
+      return res.status(404).json({ message: "Không tìm thấy combo" });
+    res.json(results[0]);
+  });
+});
+
 const PORT = 5000;
 app.listen(PORT, () => {
   console.log("Backend chạy tại http://localhost:5000");
