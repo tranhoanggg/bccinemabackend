@@ -103,6 +103,56 @@ app.post("/api/profile/login", async (req, res) => {
   }
 });
 
+app.get("/api/profile/:id", (req, res) => {
+  const userId = req.params.id;
+  const sql = "SELECT * FROM profile WHERE id = ?";
+
+  db.query(sql, [userId], (err, result) => {
+    if (err) {
+      console.error("Lỗi truy vấn:", err);
+      return res.status(500).json({ message: "Lỗi server" });
+    }
+
+    if (result.length === 0) {
+      return res.status(404).json({ message: "Không tìm thấy người dùng" });
+    }
+
+    res.json(result[0]);
+  });
+});
+
+app.put("/api/profile/:id", (req, res) => {
+  const { id } = req.params;
+  const { name, gender, email, password, phone, birthday } = req.body;
+
+  if (!name || !email || !phone) {
+    return res.status(400).json({ message: "Thiếu thông tin bắt buộc" });
+  }
+
+  const sql = `
+    UPDATE profile 
+    SET name = ?, gender = ?, email = ?, password = ?, phone = ?, birthday = ?
+    WHERE id = ?
+  `;
+
+  db.query(
+    sql,
+    [name, gender, email, password, phone, birthday, id],
+    (err, result) => {
+      if (err) {
+        console.error("❌ Lỗi khi cập nhật profile:", err);
+        return res.status(500).json({ message: "Lỗi server" });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Không tìm thấy người dùng" });
+      }
+
+      res.status(200).json({ message: "Cập nhật thông tin thành công" });
+    }
+  );
+});
+
 app.get("/endow/:id", (req, res) => {
   const { id } = req.params;
   const sql = `
@@ -256,53 +306,371 @@ app.delete("/cart", (req, res) => {
 });
 
 app.post("/complete_payment", (req, res) => {
-  const { userId, paymentMethod, paymentDay, items } = req.body;
-  if (!userId || !paymentMethod || !items?.length)
+  const { userId, paymentMethod, pickupDate, paymentDay, items } = req.body;
+  if (!userId || !paymentMethod || !pickupDate || !items?.length)
     return res.status(400).json({ error: "Thiếu dữ liệu thanh toán" });
 
   // 1️⃣ Tạo bản ghi hóa đơn (goods_bill)
   const sqlBill = `
-    INSERT INTO goods_bill (user_id, payment_day, payment_method)
-    VALUES (?, ?, ?)
+    INSERT INTO goods_bill (user_id, payment_day, payment_method, receive_day)
+    VALUES (?, ?, ?, ?)
   `;
-  db.query(sqlBill, [userId, paymentDay, paymentMethod], (err, result) => {
-    if (err) {
-      console.error("Lỗi khi tạo bill:", err);
-      return res.status(500).json({ error: "Lỗi khi tạo hóa đơn" });
-    }
+  db.query(
+    sqlBill,
+    [userId, paymentDay, paymentMethod, pickupDate],
+    (err, result) => {
+      if (err) {
+        console.error("Lỗi khi tạo bill:", err);
+        return res.status(500).json({ error: "Lỗi khi tạo hóa đơn" });
+      }
 
-    const billId = result.insertId;
+      const billId = result.insertId;
 
-    // 2️⃣ Tạo chi tiết hóa đơn (goods_bill_detail)
-    const detailValues = items.map((i) => [i.goodsId, i.quantity, billId]);
-    const sqlDetail = `
+      // 2️⃣ Tạo chi tiết hóa đơn (goods_bill_detail)
+      const detailValues = items.map((i) => [i.goodsId, i.quantity, billId]);
+      const sqlDetail = `
       INSERT INTO goods_bill_detail (goods_id, quantity, bill_id)
       VALUES ?
     `;
-    db.query(sqlDetail, [detailValues], (err2) => {
-      if (err2) {
-        console.error("Lỗi khi lưu chi tiết hóa đơn:", err2);
-        return res.status(500).json({ error: "Lỗi khi lưu chi tiết hóa đơn" });
-      }
+      db.query(sqlDetail, [detailValues], (err2) => {
+        if (err2) {
+          console.error("Lỗi khi lưu chi tiết hóa đơn:", err2);
+          return res
+            .status(500)
+            .json({ error: "Lỗi khi lưu chi tiết hóa đơn" });
+        }
 
-      // 3️⃣ Xóa sản phẩm khỏi giỏ hàng
-      const goodsIds = items.map((i) => i.goodsId);
-      const sqlDeleteCart = `
+        // 3️⃣ Xóa sản phẩm khỏi giỏ hàng
+        const goodsIds = items.map((i) => i.goodsId);
+        const sqlDeleteCart = `
         DELETE FROM cart
         WHERE user_id = ? AND goods_id IN (?)
       `;
-      db.query(sqlDeleteCart, [userId, goodsIds], (err3) => {
+        db.query(sqlDeleteCart, [userId, goodsIds], (err3) => {
+          if (err3) {
+            console.error("Lỗi khi xóa sản phẩm khỏi giỏ hàng:", err3);
+            return res
+              .status(500)
+              .json({ error: "Lỗi khi xóa sản phẩm trong giỏ hàng" });
+          }
+
+          res.json({
+            success: true,
+            message: "Thanh toán hoàn tất!",
+            billId,
+          });
+        });
+      });
+    }
+  );
+});
+
+// 🟢 API: Lấy danh sách ghế theo phòng, ngày và giờ
+app.get("/slots", (req, res) => {
+  const { room_id, day, time } = req.query;
+  if (!room_id || !day || !time) {
+    return res.status(400).json({ error: "Thiếu room_id, day hoặc time" });
+  }
+
+  const sql = `
+    SELECT ID, room_id, line, col, status, day, time, user_id 
+    FROM slot 
+    WHERE room_id = ? AND day = ? AND time = ?
+  `;
+  db.query(sql, [room_id, day, time], (err, result) => {
+    if (err) {
+      console.error("❌ Lỗi khi truy vấn slot:", err);
+      return res.status(500).json({ error: "Lỗi truy vấn slot" });
+    }
+    res.json(result);
+  });
+});
+
+// 🟡 API: Giữ ghế tạm thời (reserved)
+app.post("/slot", (req, res) => {
+  console.log("📩 Nhận request giữ ghế:", req.body);
+  const { room_id, line, col, day, time, user_id } = req.body;
+  if (!room_id || !line || !col || !day || !time || !user_id) {
+    return res.status(400).json({ error: "Thiếu dữ liệu giữ ghế" });
+  }
+
+  const sql = `
+    INSERT INTO slot (room_id, line, col, status, day, time, user_id)
+    VALUES (?, ?, ?, 'reserved', ?, ?, ?)
+  `;
+  db.query(sql, [room_id, line, col, day, time, user_id], (err, result) => {
+    if (err) {
+      console.error("❌ Lỗi khi giữ ghế:", err);
+      return res.status(500).json({ error: "Lỗi giữ ghế" });
+    }
+    res.json({ success: true, id: result.insertId });
+  });
+});
+
+// 🔴 API: Xóa tất cả ghế reserved của người dùng (hết 5 phút hoặc hủy)
+app.post("/clear_reserved", (req, res) => {
+  const { user_id, day, time } = req.body;
+  if (!user_id || !day || !time) {
+    return res.status(400).json({ error: "Thiếu dữ liệu xóa ghế reserved" });
+  }
+
+  const sql = `
+    DELETE FROM slot 
+    WHERE user_id = ? AND day = ? AND time = ? AND status = 'reserved'
+  `;
+  db.query(sql, [user_id, day, time], (err, result) => {
+    if (err) {
+      console.error("❌ Lỗi khi xóa ghế reserved:", err);
+      return res.status(500).json({ error: "Lỗi khi xóa ghế reserved" });
+    }
+    res.json({ success: true, deleted: result.affectedRows });
+  });
+});
+
+app.post("/complete-bookticket", (req, res) => {
+  const {
+    user_id,
+    film_id,
+    selectedSeats,
+    selectedRoom,
+    selectedDate,
+    selectedTime,
+    paymentMethod,
+    goods,
+  } = req.body;
+
+  // Chuyển ngày dd/mm/yyyy → yyyy-mm-dd để phù hợp với MySQL
+  const formatDate = (dateStr) => {
+    const [day, month, year] = dateStr.split("/");
+    return `${year}-${month}-${day}`;
+  };
+  const formattedDate = formatDate(selectedDate);
+
+  // 🔹 1. Thêm dòng mới vào ticket_bill
+  const sqlInsertTicket =
+    "INSERT INTO ticket_bill (film_id, payment_day, payment_method) VALUES (?, NOW(), ?)";
+
+  db.query(sqlInsertTicket, [film_id, paymentMethod], (err, ticketResult) => {
+    if (err) {
+      console.error("❌ Lỗi khi thêm ticket_bill:", err);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+
+    const ticket_id = ticketResult.insertId;
+    console.log("✅ Đã tạo ticket_id:", ticket_id);
+
+    // 🔹 2. Update trạng thái ghế: reserved → booked
+    let updatesDone = 0;
+    let totalToUpdate = 0;
+
+    // Đếm tổng ghế "reserved" trong ma trận
+    selectedSeats.forEach((row) => {
+      row.forEach((seat) => {
+        if (seat === "reserved") totalToUpdate++;
+      });
+    });
+
+    if (totalToUpdate === 0) {
+      console.warn("⚠️ Không có ghế reserved để update!");
+      return res.json({ success: true, ticket_id });
+    }
+
+    selectedSeats.forEach((row, lineIndex) => {
+      row.forEach((seat, colIndex) => {
+        if (seat === "reserved") {
+          const sqlUpdateSeat = `
+            UPDATE slot 
+            SET status='booked', ticket_id=? 
+            WHERE room_id=? AND line=? AND col=? AND day=? AND time=? 
+            AND status='reserved' AND user_id=?`;
+
+          db.query(
+            sqlUpdateSeat,
+            [
+              ticket_id,
+              selectedRoom,
+              lineIndex + 1, // vì line trong DB bắt đầu từ 1
+              colIndex + 1,
+              formattedDate,
+              selectedTime,
+              user_id,
+            ],
+            (err, result) => {
+              if (err) {
+                console.error("❌ Lỗi khi cập nhật ghế:", err);
+                return res
+                  .status(500)
+                  .json({ success: false, message: err.message });
+              }
+
+              updatesDone++;
+              if (updatesDone === totalToUpdate) {
+                // 🔹 3. Nếu có goods, insert vào goods_bill_detail
+                if (goods && goods.length > 0) {
+                  const goodsToInsert = goods
+                    .filter((g) => g.quantity > 0)
+                    .map((g) => [g.goods_id, g.quantity, ticket_id]);
+
+                  if (goodsToInsert.length > 0) {
+                    db.query(
+                      "INSERT INTO goods_bill_detail (goods_id, quantity, ticket_id) VALUES ?",
+                      [goodsToInsert],
+                      (err) => {
+                        if (err) {
+                          console.error(
+                            "❌ Lỗi khi thêm goods_bill_detail:",
+                            err
+                          );
+                          return res
+                            .status(500)
+                            .json({ success: false, message: err.message });
+                        }
+                        console.log("✅ Đã thêm goods_bill_detail");
+                        res.json({ success: true, ticket_id });
+                      }
+                    );
+                  } else {
+                    res.json({ success: true, ticket_id });
+                  }
+                } else {
+                  res.json({ success: true, ticket_id });
+                }
+              }
+            }
+          );
+        }
+      });
+    });
+  });
+});
+
+app.get("/user-transactions/:user_id", (req, res) => {
+  const user_id = req.params.user_id;
+
+  // 1️⃣ Lấy giao dịch "Mua đồ ăn"
+  const sqlGoods = `
+    SELECT gb.ID AS bill_id, gb.payment_day,
+           COALESCE(SUM(g.discount * gbd.quantity), 0) AS total
+    FROM goods_bill gb
+    JOIN goods_bill_detail gbd ON gb.ID = gbd.bill_id
+    JOIN goods g ON gbd.goods_id = g.ID
+    WHERE gb.user_id = ?
+    GROUP BY gb.ID
+    ORDER BY gb.payment_day DESC
+  `;
+
+  db.query(sqlGoods, [user_id], (err, goodsResults) => {
+    if (err) {
+      console.error("❌ Lỗi khi truy vấn goods_bill:", err);
+      return res.status(500).json({ error: "Lỗi truy vấn goods_bill" });
+    }
+
+    // 2️⃣ Lấy tất cả ticket_id của user (dù có hoặc không có goods)
+    const sqlTickets = `
+      SELECT DISTINCT tb.ID AS ticket_id, tb.payment_day
+      FROM ticket_bill tb
+      JOIN slot s ON s.ticket_id = tb.ID
+      WHERE s.user_id = ?
+      ORDER BY tb.payment_day DESC
+    `;
+
+    db.query(sqlTickets, [user_id], (err2, tickets) => {
+      if (err2) {
+        console.error("❌ Lỗi khi truy vấn ticket_bill:", err2);
+        return res.status(500).json({ error: "Lỗi truy vấn ticket_bill" });
+      }
+
+      if (tickets.length === 0) {
+        const transactions = goodsResults.map((item, idx) => ({
+          id: `G-${item.bill_id}`,
+          stt: idx + 1,
+          type: "Mua đồ ăn",
+          date: item.payment_day,
+          total: Number(item.total),
+        }));
+        return res.json(transactions);
+      }
+
+      const ticketIds = tickets.map((t) => t.ticket_id);
+
+      // 3️⃣ Tính số ghế cho từng ticket
+      const sqlSeat = `
+        SELECT ticket_id, COUNT(*) AS seat_count
+        FROM slot
+        WHERE ticket_id IN (?)
+        GROUP BY ticket_id
+      `;
+
+      db.query(sqlSeat, [ticketIds], (err3, seatResults) => {
         if (err3) {
-          console.error("Lỗi khi xóa sản phẩm khỏi giỏ hàng:", err3);
-          return res
-            .status(500)
-            .json({ error: "Lỗi khi xóa sản phẩm trong giỏ hàng" });
+          console.error("❌ Lỗi khi truy vấn slot:", err3);
+          return res.status(500).json({ error: "Lỗi truy vấn slot" });
         }
 
-        res.json({
-          success: true,
-          message: "Thanh toán hoàn tất!",
-          billId,
+        // 4️⃣ Tính tiền đồ ăn đi kèm (nếu có)
+        const sqlGoodsTicket = `
+          SELECT gbd.ticket_id, COALESCE(SUM(g.discount * gbd.quantity), 0) AS goods_total
+          FROM goods_bill_detail gbd
+          JOIN goods g ON gbd.goods_id = g.ID
+          WHERE gbd.ticket_id IN (?)
+          GROUP BY gbd.ticket_id
+        `;
+
+        db.query(sqlGoodsTicket, [ticketIds], (err4, goodsTicketResults) => {
+          if (err4) {
+            console.error("❌ Lỗi khi truy vấn goods_bill_detail:", err4);
+            return res
+              .status(500)
+              .json({ error: "Lỗi truy vấn goods_bill_detail" });
+          }
+
+          const seatMap = {};
+          seatResults.forEach(
+            (r) => (seatMap[r.ticket_id] = Number(r.seat_count || 0))
+          );
+
+          const goodsMap = {};
+          goodsTicketResults.forEach(
+            (r) => (goodsMap[r.ticket_id] = Number(r.goods_total || 0))
+          );
+
+          // 5️⃣ Gộp toàn bộ giao dịch lại
+          const transactions = [];
+
+          // Thêm "Mua đồ ăn" độc lập
+          goodsResults.forEach((g) => {
+            transactions.push({
+              id: `G-${g.bill_id}`,
+              type: "Mua đồ ăn",
+              date: g.payment_day,
+              total: Number(g.total),
+            });
+          });
+
+          // Thêm "Mua vé" và "Mua vé (có đồ ăn)"
+          tickets.forEach((t) => {
+            const seatCount = seatMap[t.ticket_id] || 0;
+            const seatTotal = seatCount * 50000;
+            const goodsTotal = goodsMap[t.ticket_id] || 0;
+            const total = seatTotal + goodsTotal;
+
+            const type = goodsTotal > 0 ? "Mua vé (có đồ ăn đi kèm)" : "Mua vé";
+
+            transactions.push({
+              id: `T-${t.ticket_id}`,
+              type,
+              date: t.payment_day,
+              total,
+            });
+          });
+
+          // 6️⃣ Sắp xếp theo ngày (mới nhất trước)
+          transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+          // 7️⃣ Đánh số thứ tự
+          transactions.forEach((t, i) => (t.stt = i + 1));
+
+          res.json(transactions);
         });
       });
     });
