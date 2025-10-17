@@ -677,6 +677,87 @@ app.get("/user-transactions/:user_id", (req, res) => {
   });
 });
 
+// HUỶ GIAO DỊCH MUA ĐỒ ĂN
+app.delete("/cancel-goods/:bill_id", (req, res) => {
+  const bill_id = req.params.bill_id;
+
+  // Xoá chi tiết hoá đơn trước
+  const sqlDeleteDetail = "DELETE FROM goods_bill_detail WHERE bill_id = ?";
+  db.query(sqlDeleteDetail, [bill_id], (err1) => {
+    if (err1) {
+      console.error("❌ Lỗi khi xoá goods_bill_detail:", err1);
+      return res.status(500).json({ error: "Lỗi khi xoá chi tiết hoá đơn" });
+    }
+
+    // Sau đó xoá hoá đơn chính
+    const sqlDeleteBill = "DELETE FROM goods_bill WHERE ID = ?";
+    db.query(sqlDeleteBill, [bill_id], (err2, result) => {
+      if (err2) {
+        console.error("❌ Lỗi khi xoá goods_bill:", err2);
+        return res.status(500).json({ error: "Lỗi khi xoá hoá đơn đồ ăn" });
+      }
+
+      if (result.affectedRows === 0)
+        return res
+          .status(404)
+          .json({ message: "Không tìm thấy hoá đơn cần xoá" });
+
+      res.json({ message: "Đã huỷ giao dịch Mua đồ ăn thành công" });
+    });
+  });
+});
+
+// HUỶ GIAO DỊCH MUA VÉ
+app.delete("/cancel-ticket/:ticket_id", (req, res) => {
+  const ticket_id = req.params.ticket_id;
+
+  const sqlDeleteTicket = "DELETE FROM ticket_bill WHERE ID = ?";
+  db.query(sqlDeleteTicket, [ticket_id], (err, result) => {
+    if (err) {
+      console.error("❌ Lỗi khi xoá ticket_bill:", err);
+      return res.status(500).json({ error: "Lỗi khi xoá hoá đơn vé" });
+    }
+
+    if (result.affectedRows === 0)
+      return res.status(404).json({ message: "Không tìm thấy vé cần xoá" });
+
+    res.json({ message: "Đã huỷ giao dịch Mua vé thành công" });
+  });
+});
+
+// HUỶ GIAO DỊCH MUA VÉ (CÓ ĐỒ ĂN ĐI KÈM)
+app.delete("/cancel-ticket-with-goods/:ticket_id", (req, res) => {
+  const ticket_id = req.params.ticket_id;
+
+  // 1️⃣ Xoá chi tiết đồ ăn liên quan
+  const sqlDeleteGoodsDetail =
+    "DELETE FROM goods_bill_detail WHERE ticket_id = ?";
+  db.query(sqlDeleteGoodsDetail, [ticket_id], (err1) => {
+    if (err1) {
+      console.error("❌ Lỗi khi xoá goods_bill_detail:", err1);
+      return res
+        .status(500)
+        .json({ error: "Lỗi khi xoá chi tiết đồ ăn đi kèm vé" });
+    }
+
+    // 2️⃣ Xoá hoá đơn vé
+    const sqlDeleteTicket = "DELETE FROM ticket_bill WHERE ID = ?";
+    db.query(sqlDeleteTicket, [ticket_id], (err2, result) => {
+      if (err2) {
+        console.error("❌ Lỗi khi xoá ticket_bill:", err2);
+        return res.status(500).json({ error: "Lỗi khi xoá vé" });
+      }
+
+      if (result.affectedRows === 0)
+        return res.status(404).json({ message: "Không tìm thấy vé cần xoá" });
+
+      res.json({
+        message: "Đã huỷ giao dịch Mua vé (có đồ ăn đi kèm) thành công",
+      });
+    });
+  });
+});
+
 const PORT = 5000;
 app.listen(PORT, () => {
   console.log("Backend chạy tại http://localhost:5000");
