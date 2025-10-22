@@ -365,7 +365,7 @@ app.post("/complete_payment", (req, res) => {
   );
 });
 
-// 🟢 API: Lấy danh sách ghế theo phòng, ngày và giờ
+// Lấy danh sách ghế theo phòng, ngày và giờ
 app.get("/slots", (req, res) => {
   const { room_id, day, time } = req.query;
   if (!room_id || !day || !time) {
@@ -386,7 +386,7 @@ app.get("/slots", (req, res) => {
   });
 });
 
-// 🟡 API: Giữ ghế tạm thời (reserved)
+// Giữ ghế tạm thời (reserved)
 app.post("/slot", (req, res) => {
   console.log("📩 Nhận request giữ ghế:", req.body);
   const { room_id, line, col, day, time, user_id } = req.body;
@@ -407,7 +407,7 @@ app.post("/slot", (req, res) => {
   });
 });
 
-// 🔴 API: Xóa tất cả ghế reserved của người dùng (hết 5 phút hoặc hủy)
+// Xóa tất cả ghế reserved của người dùng (hết 5 phút hoặc hủy)
 app.post("/clear_reserved", (req, res) => {
   const { user_id, day, time } = req.body;
   if (!user_id || !day || !time) {
